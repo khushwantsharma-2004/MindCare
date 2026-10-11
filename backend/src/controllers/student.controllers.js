@@ -1,0 +1,185 @@
+import Student from "../models/student.model.js";
+import { upload } from "../middlewares/multer.js";
+import { cloudinaryUpload,cloudinaryDelete } from "../utils/cloudinary.js";
+const generateTokenAndRefreshToken = async (userId) => {
+  try {
+    const user = await Student.findById(userId);
+    const Token = await user.generateToken();
+    const refreshToken = await user.generateRefreshToken();
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+    return { Token, refreshToken };
+  } catch (error) {
+    throw new Error("something went wrong while generating tokens and refresh tokens");
+  }
+};
+const studentRegister = async (req, res) => {
+  try {
+    const { name, email, mobile_number, password, age, gender, course,institution } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Name is required" });
+    }
+    if (!institution || !institution.trim()) {
+      return res.status(400).json({ message: "Institution Name is required" });
+    }
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    if (!mobile_number ) {
+      return res.status(400).json({ message: "Mobile number is required" });
+    }
+
+    if (!password || !password.trim()) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    if (!age) {
+      return res.status(400).json({ message: "Age is required" });
+    }
+
+    if (!gender || !gender.trim()) {
+      return res.status(400).json({ message: "Gender is required" });
+    }
+    const normalizedGender = gender.trim().toLowerCase();
+    const genderValue = normalizedGender.charAt(0).toUpperCase() + normalizedGender.slice(1);
+    if (!["Male", "Female", "Other"].includes(genderValue)) {
+      return res.status(400).json({ message: "Gender must be Male, Female, or Other" });
+    }
+
+    if (!course || !course.trim()) {
+      return res.status(400).json({ message: "Course is required" });
+    }
+    const existedUser=await Student.findOne({email});
+    if(existedUser){
+        return res.status(400).json({ message: "student already exist" });
+    }
+    
+    
+    const student=await Student.create({
+        name,
+        email,
+        mobile_number,
+        password,
+        gender: genderValue,
+        age,
+        institution,
+        course,
+        
+    })
+    const User=await Student.findById(student._id).select("-password -refreshToken");
+    if(!User){
+        return res.status(400).json({ message: "something went wrong while registering student" });
+    }
+    return res.status(200).json({
+        User,
+        message:"student created successfully"
+    })
+  } catch (error) {
+    console.error("Student registration failed:", error);
+    return res.status(500).json({
+      message: "error while student registered",
+      error:error.message,
+    });
+  }
+};
+const studentLogin=async(req,res)=>{
+  try{
+    const {email,password}=req.body;
+    if(!email || !password){
+      return res.status(400).json({ message: "email or password is required" });
+    }
+    const user=await Student.findOne({email});
+    if(!user){
+      return res.status(400).json({ message: "invalid email" });
+    }
+    const isPasswordValid = await user.isPasswordCorrect(password);
+    if (!isPasswordValid) return res.status(400).json({ message: "invalid password" });
+    const {Token,refreshToken}=await generateTokenAndRefreshToken(user._id);
+    const User=await Student.findById(user._id).select("-password -refreshToken");
+    const options={httpOnly:true,secure:true};
+    return  res.status(200)
+    .cookie("Token",Token,options)
+    .cookie("refreshToken",refreshToken,options)
+    .json({
+      User,
+      message:"user loggedIn successfully",
+      Token,
+      refreshToken
+    })
+
+  }
+  catch(error){
+    return res.status(500).json({
+      message: "error while student loggedIn",
+      error:error.message,
+    });
+  }
+}
+const studentLogout = async (req, res) => {
+  try {
+    await Student.findByIdAndUpdate(
+      req.user._id,
+      { $unset: { refreshToken: 1 } },
+      { new: true }
+    );
+
+    const options = { httpOnly: true, secure: true };
+
+    return res
+      .status(200)
+      .clearCookie("Token", options)
+      .clearCookie("refreshToken", options)
+      .json({ message: "student logout successfully" });
+  } catch (error) {
+    return res.status(400).json({ message: "error in logging out" });
+  }
+};
+
+ const getMyProfile = async (req, res) => {
+  try {
+    const studentId = req.user._id; // JWT middleware se aayega
+    if (!studentId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const student = await Student.findById(studentId).select("name email");
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    res.status(200).json({ name: student.name, email: student.email });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+const updateSelfAssessment = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { PHQ9, GAD7, GHQ } = req.body;
+
+    const updatedStudent = await Student.findByIdAndUpdate(
+      studentId,
+      { 
+        "mental_health_score.PHQ9": PHQ9,
+        "mental_health_score.GAD7": GAD7,
+        "mental_health_score.GHQ": GHQ
+      },
+      { new: true } // return the updated document
+    );
+
+    if (!updatedStudent) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    return res.status(200).json({ message: "Self assessment updated successfully", student: updatedStudent });
+  } catch (error) {
+    return res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+};
+
+
+export {studentRegister,studentLogin,generateTokenAndRefreshToken,studentLogout,getMyProfile,updateSelfAssessment}
