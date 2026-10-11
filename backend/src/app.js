@@ -1,3 +1,4 @@
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -13,7 +14,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:8080",
+    origin: [
+      "http://localhost:8080",
+      "https://mindcare-frontend-cnh9.onrender.com",
+    ],
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
